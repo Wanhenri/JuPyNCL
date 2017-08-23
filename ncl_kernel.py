@@ -52,8 +52,6 @@ class NCLKernel(Kernel):
             self._child.setwinsize(400,500)
         finally:
             signal.signal(signal.SIGINT, sig)
-       
-
     def do_execute(self, code, silent=True, store_history=True, user_expressions=None,
                    allow_stdin=False):
         code   =  code.strip()
@@ -98,21 +96,23 @@ class NCLKernel(Kernel):
 #---2send expect everytime  
         except KeyboardInterrupt:
             self._child.sendintr()
-            output = self._child.before
+            output = self._child.before.decode().splitlines()
             if not self._child.isalive():
-                 output+='\n killing ncl session and restarting'
-                 interrupt = True
-                 self._start_ncl()
-                 if self._child.isalive():
-                     return {'status': 'ok','execution_count': [],'payload': [],'user_expressions': {}}
+                self.process_output(output)
+                self.process_output(['\n killing ncl session and restarting'])
+                interrupt = True
+                self._start_ncl()
+                if self._child.isalive():
+                    return {'status': 'ok','execution_count': [],'payload': [],'user_expressions': {}}
 
         except EOF:
             #when would this happen
-            output = self._child.before +'\n Reached EOF Restarting NCL'
+            output = self._child.before.decode().splitlines()
             if not self._child.isalive():
-                 output+='\n killing ncl session and restarting'
-                 interrupt = True
-                 self._start_ncl()
+                self.process_output(output)
+                self.process_output(['\n killing ncl session and restarting'])
+                interrupt = True
+                self._start_ncl()
         if not silent:
             #is is being used when kernel is being made from jupyter notebook
             #stream_content = {'name': 'stdout', 'text': output}
