@@ -5,6 +5,10 @@
 import os.path
 import signal
 import sys
+import os
+import base64
+import imghdr
+import glob
 
 import pexpect
 
@@ -68,6 +72,39 @@ class REPLWrapper(object):
         print( self.prompt )
         return self.child.expect(self.prompt) #had to be simplified
 
+    def get_wks_name(self, wks):
+        cmdlines =  [f'getvalues {wks}',
+                      '"wkFileName" :fname ',
+                      'end getvalues       ',
+                      'print( (/ fname /) )']
+        output = []
+        for line in cmdlines:
+            self.child.sendline(line)
+            self._expect_prompt(timeout=-1)
+            tmp = self.child.before.decode().splitlines()
+            imgname= [ x[3:].lstrip() for x in tmp if x.startswith('(0)') ]
+        return imgname[0]
+
+    def parse_most_recent_image(self, imgname):
+        names =glob.glob(f'{imgname}*.png')
+        if(len(names)==0):
+            raise ValueError("No Images found")
+        filename = max(names, key=os.path.getctime)
+        with open(filename, 'rb') as f:
+            image = f.read()
+            image_type = imghdr.what(None, image)
+            if image_type is None:
+                raise ValueError("Not a valid image: %s" % image)
+            image_data = base64.b64encode(image).decode('ascii')
+            content = {
+                'data': {
+                    'image/' + image_type: image_data
+                },
+                'metadata': {}
+            }
+        return content
+
+
     def run_command(self, command, timeout=-1):
         """Send a command to the REPL, wait for and return output.
         :param str command: The command to send. Trailing newlines are not needed.
@@ -80,26 +117,28 @@ class REPLWrapper(object):
         """
         # Split up multiline commands and feed them in bit-by-bit
         cmdlines = command.splitlines()
-        # splitlines ignores trailing newlines - add it back in manually
-        if command.endswith('\n'):
-            cmdlines.append('')
         if not cmdlines:
             raise ValueError("No command was given")
-
-        res = []
-        self.child.sendline(cmdlines[0])
-        for line in cmdlines[1:]:
-            self._expect_prompt(timeout=timeout)
-            output = self.child.before.decode().splitlines()
-            self.line_output_callback(output)
+        nline = len(cmdlines)
+        for i, line in enumerate(cmdlines):
             self.child.sendline(line)
-
-        # Command was fully submitted, now wait for the next prompt
-        if self._expect_prompt(timeout=timeout) == 1:
-            # We got the continuation prompt - command was incomplete
-            self.child.kill(signal.SIGINT)
-            self._expect_prompt(timeout=1)
-            raise ValueError("Continuation prompt found - input was incomplete:\n"
-                             + command)
-        output = self.child.before.decode().splitlines()
-        self.line_output_callback(output)
+            if  (self._expect_prompt(timeout=timeout) == 1) and (i == nline-1):
+                # We got the continuation prompt - command was incomplete
+                # A.B 20170821 Not sure when this actually ever fires ??
+                # NCL doesn't really have a continuation prompt
+                self.child.kill(signal.SIGINT)
+                self._expect_prompt(timeout=1)
+                self.line_output_callback(["Continuation prompt found"])
+                raise ValueError("Continuation prompt found - input was incomplete:\n"
+                                + command)
+            else:
+                output = self.child.before.decode().splitlines()
+                if( line.startswith('frame(') ):
+                    line=line.replace('frame(','')
+                    line=line.replace(')','')
+                    imgname = self.get_wks_name(line)
+                    try:
+                        output = self.parse_most_recent_image(imgname)
+                    except ValueError as e:
+                        output=e
+                self.line_output_callback(output)
