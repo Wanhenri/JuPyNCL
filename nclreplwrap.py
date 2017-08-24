@@ -20,6 +20,7 @@ if PY3:
 PEXPECT_PROMPT = u'[PEXPECT_PROMPT>'
 PEXPECT_CONTINUATION_PROMPT = u'[PEXPECT_PROMPT+'
 
+
 class REPLWrapper(object):
     """Wrapper for a REPL.
     :param cmd_or_spawn: This can either be an instance of :class:`pexpect.spawn`
@@ -137,8 +138,9 @@ class REPLWrapper(object):
                     line=line.replace('frame(','')
                     line=line.replace(')','')
                     imgname = self.get_wks_name(line)
+                    self.line_output_callback([imgname])
                     try:
                         output = self.parse_most_recent_image(imgname)
                     except ValueError as e:
-                        output=e
+                        output=[e]
                 self.line_output_callback(output)
